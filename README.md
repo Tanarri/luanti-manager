@@ -21,11 +21,13 @@ Designed for power users, homelabs and dedicated Linux servers.
 
 ## 📁 Project Structure
 
+```
 luanti-manager/
 ├── luantictl
 ├── luanti_instances.conf
 ├── run/          # PID files (ignored by git)
 └── logs/         # Log files (ignored by git)
+```
 
 Your Luanti installation remains separate:
 

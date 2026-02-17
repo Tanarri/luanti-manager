@@ -121,10 +121,12 @@ luantictl check
 mkdir -p ~/luanti-manager/{run,logs}
 chmod +x luantictl
 ```
+
 Optional: add to PATH
 
 ```bash
-sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl```
+sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl
+```
 
 ##🌍 Environment Variables (Optional)
 You can override default paths:

@@ -1,0 +1,10 @@
+# Runtime
+run/
+logs/
+
+# PID Files
+*.pid
+
+# Optional: lokale Config nicht pushen
+# luanti_instances.conf
+

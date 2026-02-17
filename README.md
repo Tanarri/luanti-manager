@@ -85,57 +85,33 @@ Code kopieren
 
 luantictl start all
 
-graphql
-Code kopieren
-
 ### Start a single world
 
 luantictl start voxelibre
-
-shell
-Code kopieren
 
 ### Stop everything
 
 luantictl stop all
 
-shell
-Code kopieren
-
 ### Restart one instance
 
 luantictl restart 2025_09
-
-shell
-Code kopieren
 
 ### Show status
 
 luantictl status
 
-shell
-Code kopieren
-
 ### Follow logs
 
 luantictl tail voxelibre
-
-shell
-Code kopieren
 
 ### Check port usage
 
 luantictl ports
 
-shell
-Code kopieren
-
 ### Validate configuration
 
 luantictl check
-
-yaml
-Code kopieren
 
 ---
 
@@ -144,25 +120,28 @@ Code kopieren
 ```bash
 mkdir -p ~/luanti-manager/{run,logs}
 chmod +x luantictl
+```
 Optional: add to PATH
 
-bash
-Code kopieren
-sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl
-🌍 Environment Variables (Optional)
+```bash
+sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl```
+
+##🌍 Environment Variables (Optional)
 You can override default paths:
 
-bash
-Code kopieren
+```
 export LUANTI_DIR=~/luanti
 export BASE_DIR=~/luanti-manager
 export CONF_FILE=~/luanti-manager/luanti_instances.conf
-🔒 Git Safety
+```
+
+##🔒 Git Safety
 The following are ignored by .gitignore:
 
-arduino
-Code kopieren
+```
 run/
 logs/
 *.pid
+```
 Runtime data is never committed.
+

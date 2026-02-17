@@ -128,7 +128,8 @@ Optional: add to PATH
 sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl
 ```
 
-## ğŸŒ Environment Variables (Optional)
+## ğŸŒ  Environment Variables (Optional)
+
 You can override default paths:
 
 ```
@@ -137,7 +138,7 @@ export BASE_DIR=~/luanti-manager
 export CONF_FILE=~/luanti-manager/luanti_instances.conf
 ```
 
-##ğ Ÿ”’ Git Safety
+##ğ Ÿ”’  Git Safety
 The following are ignored by .gitignore:
 
 ```

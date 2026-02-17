@@ -19,53 +19,42 @@ Designed for power users, homelabs and dedicated Linux servers.
 
 ---
 
-## ð Project Structure
+## 📁 Project Structure
 
 luanti-manager/
-âââ luantictl
-âââ luanti_instances.conf
-âââ run/ # PID files (ignored by git)
-âââ logs/ # Log files (ignored by git)
-
-scss
-Code kopieren
+├── luantictl
+├── luanti_instances.conf
+├── run/          # PID files (ignored by git)
+└── logs/         # Log files (ignored by git)
 
 Your Luanti installation remains separate:
 
+```
 ~/luanti
-
-yaml
-Code kopieren
+```
 
 This keeps the official Luanti repository clean.
 
 ---
 
-## âï¸ Configuration
+## ⚙️  Configuration
 
 Edit:
-
+```
 luanti_instances.conf
-
-makefile
-Code kopieren
-
+```
 Format:
-
+```
 NAME|WORLDREL|PORT|LOGREL|GAMEID
-
-makefile
-Code kopieren
+```
 
 Example:
-
+```
 NAME|WORLDREL|PORT|LOGREL|GAMEID
 2025_09|worlds/2025_09|30000|logs/2025_09.log|
 voxelibre|worlds/voxelibre|30001|logs/voxelibre.log|voxelibre
 creative|worlds/creative|30002|logs/creative.log|minetest
-
-yaml
-Code kopieren
+```
 
 ### Field Description
 
@@ -79,7 +68,7 @@ Code kopieren
 
 ---
 
-## ð Usage
+## 🚀 Usage
 
 ### Start all worlds
 
@@ -115,7 +104,7 @@ luantictl check
 
 ---
 
-## ð§ Installation
+## 🔧 Installation
 
 ```bash
 mkdir -p ~/luanti-manager/{run,logs}
@@ -128,7 +117,7 @@ Optional: add to PATH
 sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl
 ```
 
-## ð  Environment Variables (Optional)
+## 🌍 Environment Variables (Optional)
 
 You can override default paths:
 
@@ -138,7 +127,7 @@ export BASE_DIR=~/luanti-manager
 export CONF_FILE=~/luanti-manager/luanti_instances.conf
 ```
 
-##ð   Git Safety
+## 🔒 Git Safety
 The following are ignored by .gitignore:
 
 ```

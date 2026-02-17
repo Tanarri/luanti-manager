@@ -19,13 +19,13 @@ Designed for power users, homelabs and dedicated Linux servers.
 
 ---
 
-## 📁 Project Structure
+## ð Project Structure
 
 luanti-manager/
-├── luantictl
-├── luanti_instances.conf
-├── run/ # PID files (ignored by git)
-└── logs/ # Log files (ignored by git)
+âââ luantictl
+âââ luanti_instances.conf
+âââ run/ # PID files (ignored by git)
+âââ logs/ # Log files (ignored by git)
 
 scss
 Code kopieren
@@ -41,7 +41,7 @@ This keeps the official Luanti repository clean.
 
 ---
 
-## ⚙️ Configuration
+## âï¸ Configuration
 
 Edit:
 
@@ -79,7 +79,7 @@ Code kopieren
 
 ---
 
-## 🚀 Usage
+## ð Usage
 
 ### Start all worlds
 
@@ -115,7 +115,7 @@ luantictl check
 
 ---
 
-## 🔧 Installation
+## ð§ Installation
 
 ```bash
 mkdir -p ~/luanti-manager/{run,logs}
@@ -128,7 +128,7 @@ Optional: add to PATH
 sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl
 ```
 
-## 🌍  Environment Variables (Optional)
+## ð  Environment Variables (Optional)
 
 You can override default paths:
 
@@ -138,7 +138,7 @@ export BASE_DIR=~/luanti-manager
 export CONF_FILE=~/luanti-manager/luanti_instances.conf
 ```
 
-##� ���  Git Safety
+##ð   Git Safety
 The following are ignored by .gitignore:
 
 ```

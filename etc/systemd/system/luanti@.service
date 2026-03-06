@@ -1,0 +1,26 @@
+[Unit]
+Description=Luanti Server %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/luanti-manager
+Environment=BASE_DIR=/root/luanti-manager
+Environment=LUANTI_DIR=/root/luanti
+Environment=CONF_FILE=/root/luanti-manager/luanti_instances.conf
+
+ExecStart=/root/luanti-manager/luantictl run %i
+
+Restart=on-failure
+RestartSec=10
+
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -119,6 +119,31 @@ Optional: add to PATH
 sudo ln -s ~/luanti-manager/luantictl /usr/local/bin/luantictl
 ```
 
+## Install as a systemd service
+
+```bash
+sudo ln -s ~/luanti-manager/etc/systemd/system/luanti@.service /etc/systemd/system/luanti@.service
+systemctl daemon-reload
+```
+
+Activate a world on system-startup
+
+```bash
+systemctl enable luanti@world1.service
+```
+
+Startup now
+```bash
+systemctl start luanti@world1.service
+```
+
+Check status of service
+```
+systemctl status luanti@world1.service
+# or live
+journalctl -u luanti@world1.service -n 50
+```
+
 ## 🌍 Environment Variables (Optional)
 
 You can override default paths:

@@ -22,6 +22,7 @@ Usage:
   luantictl start   all|<name>
   luantictl stop    all|<name>
   luantictl restart all|<name>
+  luantictl run     <name>
   luantictl status  [all|<name>]
   luantictl tail    <name> [lines]
   luantictl ports
@@ -131,6 +132,29 @@ start_one() {
   echo "[$NAME] started (PID $(cat "$PIDFILE"))"
 }
 
+run_one() {
+  local NAME="$1" WORLDREL="$2" PORT="$3" LOGREL="$4" GAMEID="$5"
+
+  # Optionaler Schutz: Port schon belegt?
+  if port_listening "$PORT"; then
+    echo "[$NAME] Port $PORT ist bereits belegt. Abbruch."
+    return 2
+  fi
+
+  cd "$LUANTI_DIR" || return 1
+
+  local CMD=(./bin/luanti --world "$WORLDREL" --server --port "$PORT")
+  if [[ -n "${GAMEID:-}" ]]; then
+    CMD+=(--gameid "$GAMEID")
+  fi
+
+  echo "[$NAME] run: world=$WORLDREL port=$PORT gameid=${GAMEID:-<default>}"
+
+  # Wichtig: kein nohup, kein &, kein PID-File
+  # exec ersetzt die Shell durch den echten Serverprozess
+  exec "${CMD[@]}"
+}
+
 _stop_all_cb() {
   local NAME="$1"
   stop_one "$NAME"
@@ -174,13 +198,25 @@ stop_one() {
 
 status_one() {
   local NAME="$1" WORLDREL="$2" PORT="$3" LOGREL="$4" GAMEID="$5"
-  local PIDFILE PID ls
-  PIDFILE="$(pidfile_of "$NAME")"
-  PID=""
-  [[ -f "$PIDFILE" ]] && PID="$(cat "$PIDFILE" || true)"
+  local PIDFILE PID alive="no"
 
-  local alive="no"
-  if is_pid_running "$PID"; then alive="yes"; fi
+  PIDFILE="$(pidfile_of "$NAME")"
+
+  # zuerst PID-File prüfen
+  if [[ -f "$PIDFILE" ]]; then
+    PID="$(cat "$PIDFILE" || true)"
+    if is_pid_running "$PID"; then
+      alive="yes"
+    fi
+  fi
+
+  # wenn kein PID → systemd prüfen
+  if [[ "$alive" == "no" ]]; then
+    if systemctl is-active --quiet "luanti@${NAME}.service"; then
+      alive="yes"
+      PID="$(systemctl show -p MainPID --value luanti@${NAME}.service)"
+    fi
+  fi
 
   local listen="?"
   if command -v ss >/dev/null 2>&1; then
@@ -297,6 +333,13 @@ case "$cmd" in
       sleep 1
       start_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
     fi
+    ;;
+
+    run)
+      [[ -n "$arg" ]] || die "run braucht <name>"
+      line="$(get_instance_line "$arg")" || die "Unbekannte Instanz: $arg"
+      IFS='|' read -r NAME WORLDREL PORT LOGREL GAMEID <<<"$line"
+      run_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
     ;;
 
   status)

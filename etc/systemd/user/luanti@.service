@@ -1,0 +1,17 @@
+[Unit]
+Description=Luanti Server %i
+
+[Service]
+Type=simple
+Environment=BASE_DIR=%h/luanti-manager
+Environment=LUANTI_DIR=%h/luanti
+ExecStart=%h/luanti-manager/luantictl run %i
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGINT
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

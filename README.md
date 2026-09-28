@@ -4,6 +4,10 @@ A CLI manager for running multiple **Luanti** server worlds on one Linux host.
 
 Designed for power users, homelabs and dedicated Linux servers.
 
+Current version: **1.0.0**
+
+See [Changelog.md](Changelog.md) for current changes and migration notes.
+
 ---
 
 ## ✨ Features
@@ -86,6 +90,7 @@ From the repository directory:
 
 ```bash
 ./luantictl check
+./luantictl version
 ./luantictl start voxelibre
 ./luantictl start all
 ./luantictl status
@@ -151,7 +156,7 @@ Check status of the service:
 ```bash
 systemctl --user status luanti@voxelibre.service
 # or live logs
-journalctl --user -u luanti@voxelibre.service -n 50
+journalctl --user-unit='luanti@voxelibre.service' -f
 ```
 
 `luantictl start`, `stop`, `restart` and `status` use an installed systemd

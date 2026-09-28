@@ -5,6 +5,5 @@ logs/
 # PID Files
 *.pid
 
-# Optional: lokale Config nicht pushen
+# Optional: do not commit the local configuration
 # luanti_instances.conf
-

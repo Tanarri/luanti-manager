@@ -2,7 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased (Stand: 2026-09-28)
+## Unreleased
+
+## 1.0.0 - 2026-09-28
 
 ### Added
 
@@ -31,6 +33,7 @@ All notable changes to this project are documented in this file.
   process shutdown logic.
 - Expanded the README with requirements, path handling, logging behavior and
   systemd user service installation instructions.
+- Standardized code comments, help text and runtime messages in English.
 
 ### Fixed
 

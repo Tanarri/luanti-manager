@@ -1,13 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
-# Pfade können beim Aufruf oder in der systemd-Unit überschrieben werden.
+VERSION="1.0.0"
+
+# Paths can be overridden by the caller or the systemd unit.
 LUANTI_DIR="${LUANTI_DIR:-$HOME/luanti}"
 BASE_DIR="${BASE_DIR:-$HOME/luanti-manager}"
 CONF_FILE="${CONF_FILE:-$BASE_DIR/luanti_instances.conf}"
 RUN_DIR="$BASE_DIR/run"
 
-# Hilfsfunktionen
+# General helpers
 die() { echo "ERROR: $*" >&2; exit 1; }
 warn() { echo "WARN:  $*" >&2; }
 
@@ -15,7 +17,7 @@ usage() {
   cat <<'EOF'
 luantictl - Luanti Multi-Instance Controller
 
-Verwendung:
+Usage:
   luantictl start   all|<name>
   luantictl stop    all|<name>
   luantictl restart all|<name>
@@ -24,34 +26,36 @@ Verwendung:
   luantictl tail    <name> [lines]
   luantictl ports
   luantictl check
+  luantictl version
   luantictl help
 
-run startet Luanti im Vordergrund für systemd.
-start/restart/stop nutzen eine installierte systemd-Unit, sonst PID-Dateien.
-tail liest nur die Logdatei eines direkt gestarteten Servers.
-Für die UDP-Portprüfung wird ss benötigt.
+run starts Luanti in the foreground for systemd.
+start/restart/stop use an installed systemd unit, or PID files otherwise.
+tail reads only the log file of a directly started server.
+UDP port inspection requires ss.
 
-Optionale Umgebungsvariablen:
+Optional environment variables:
   LUANTI_DIR=/path/to/luanti
   BASE_DIR=/path/to/luanti-manager
   CONF_FILE=/path/to/luanti_instances.conf
 
-Konfigurationsformat:
+Configuration format:
   NAME|WORLDREL|PORT|LOGREL|GAMEID
-  NAME enthält nur Buchstaben, Ziffern, _, . und -.
-  GAMEID darf leer sein.
+  NAME may contain letters, digits, _, . and - only.
+  GAMEID may be empty.
 EOF
 }
 
 need_conf() {
-  [[ -f "$CONF_FILE" ]] || die "Config nicht gefunden: $CONF_FILE"
+  [[ -f "$CONF_FILE" ]] || die "Configuration file not found: $CONF_FILE"
 }
 
 need_luanti() {
-  [[ -d "$LUANTI_DIR" ]] || die "LUANTI_DIR nicht gefunden: $LUANTI_DIR"
-  [[ -x "$LUANTI_DIR/bin/luanti" ]] || die "luanti binary nicht ausführbar: $LUANTI_DIR/bin/luanti"
+  [[ -d "$LUANTI_DIR" ]] || die "LUANTI_DIR not found: $LUANTI_DIR"
+  [[ -x "$LUANTI_DIR/bin/luanti" ]] || die "Luanti binary is not executable: $LUANTI_DIR/bin/luanti"
 }
 
+# Configuration parsing
 trim() {
   local value="$1"
   value="${value#"${value%%[![:space:]]*}"}"
@@ -60,7 +64,7 @@ trim() {
 }
 
 parse_instance_line() {
-  # Setzt NAME, WORLDREL, PORT, LOGREL und GAMEID für den aufrufenden Code.
+  # Sets NAME, WORLDREL, PORT, LOGREL and GAMEID for the caller.
   IFS='|' read -r NAME WORLDREL PORT LOGREL GAMEID <<< "$1"
   NAME="$(trim "$NAME")"
   WORLDREL="$(trim "$WORLDREL")"
@@ -70,8 +74,8 @@ parse_instance_line() {
   [[ -n "$NAME" && "$NAME" != \#* ]]
 }
 
-# Übergibt jede Konfigurationszeile als fünf Argumente an den Callback.
-# Im Sammelmodus werden alle Zeilen geprüft und Fehler am Ende gemeldet.
+# Passes each configuration row to the callback as five arguments.
+# Aggregate mode checks every row and reports failure after the complete file.
 for_each_instance() {
   local cb="$1" line=""
   local aggregate_errors="${2:-false}" failed=0
@@ -100,11 +104,15 @@ get_instance_line() {
 
 valid_instance_name() { [[ "$1" =~ ^[A-Za-z0-9_.-]+$ ]]; }
 pidfile_of() {
-  valid_instance_name "$1" || die "Ungültiger Instanzname: $1"
+  valid_instance_name "$1" || die "Invalid instance name: $1"
   echo "$RUN_DIR/$1.pid"
 }
 logfile_of_rel() { echo "$BASE_DIR/$1"; }
 
+# Direct process identity
+#
+# A PID alone is unsafe because Linux can reuse it. PID files therefore store
+# "PID START_TIME BOOT_ID" and every signal path verifies all three values.
 is_pid_running() {
   local pid="$1"
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null
@@ -115,7 +123,7 @@ pid_start_time() {
   local -a fields
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
   IFS= read -r stat 2>/dev/null < "/proc/$pid/stat" || return 1
-  # Nach dem Prozessnamen in Klammern ist Index 19 das starttime-Feld (Feld 22).
+  # After the parenthesized process name, index 19 is starttime (field 22).
   read -r -a fields <<< "${stat##*) }"
   [[ ${#fields[@]} -ge 20 ]] || return 1
   [[ "${fields[0]}" != Z && "${fields[0]}" != X ]] || return 3
@@ -128,7 +136,7 @@ boot_id() {
   printf '%s\n' "$id"
 }
 
-# Rückgabe: 0 = verifizierter Prozess, 1 = beendet/veraltet, 2 = lebende PID ohne passende Kennung.
+# Return: 0 = verified process, 1 = exited/stale, 2 = live PID with mismatched identity.
 pidfile_state() {
   local pidfile="$1" pid start boot extra current_start current_boot stat_status
   MANAGED_PID=""
@@ -150,6 +158,10 @@ pidfile_state() {
   return 0
 }
 
+# systemd integration
+#
+# Both scopes are recognized to support migration from the former system unit.
+# User units take precedence when both variants are installed.
 systemctl_in_scope() {
   local scope="$1"
   shift
@@ -163,7 +175,7 @@ systemctl_in_scope() {
 service_scope() {
   local wanted="$1" unit="luanti@$2.service" scope state
   command -v systemctl >/dev/null 2>&1 || return 1
-  # Benutzerdienst hat Vorrang vor einer noch installierten alten System-Unit.
+  # Prefer a user unit when a legacy system unit is installed as well.
   for scope in user system; do
     if [[ "$wanted" == active ]]; then
       if systemctl_in_scope "$scope" is-active --quiet "$unit" 2>/dev/null; then
@@ -189,10 +201,11 @@ service_main_pid() {
   systemctl_in_scope "$1" show -p MainPID --value "luanti@$2.service"
 }
 
+# UDP port inspection
 port_listening() {
   local port="$1"
   local sockets
-  # Luanti nutzt UDP; Rückgabe 2 bedeutet, dass die Prüfung nicht möglich war.
+  # Luanti uses UDP. Return 2 when the port cannot be inspected.
   command -v ss >/dev/null 2>&1 || return 2
   sockets="$(ss -H -lun)" || return 2
   awk -v port="$port" '
@@ -208,12 +221,12 @@ port_listening() {
 require_free_port() {
   local name="$1" port="$2" result
   if port_listening "$port"; then
-    warn "[$name] UDP-Port $port ist bereits belegt. Abbruch."
+    warn "[$name] UDP port $port is already in use. Aborting."
     return 2
   else
     result=$?
     if (( result != 1 )); then
-      warn "[$name] UDP-Port $port konnte nicht geprüft werden. Abbruch."
+      warn "[$name] UDP port $port could not be inspected. Aborting."
       return 2
     fi
   fi
@@ -230,6 +243,7 @@ port_state() {
   fi
 }
 
+# Instance lifecycle
 start_one() {
   local NAME="$1" WORLDREL="$2" PORT="$3" LOGREL="$4" GAMEID="$5"
   local PIDFILE LOGFILE PID exit_status pid_state start_time current_boot scope
@@ -237,19 +251,19 @@ start_one() {
   LOGFILE="$(logfile_of_rel "$LOGREL")"
 
   if scope="$(service_scope active "$NAME")"; then
-    echo "[$NAME] läuft bereits als systemd-$scope-Dienst"
+    echo "[$NAME] already running as a systemd $scope service"
     return 0
   fi
 
-  # Verifizierte manuelle Instanz nicht doppelt starten.
+  # Do not start a second copy of a verified direct instance.
   if [[ -f "$PIDFILE" ]]; then
     if pidfile_state "$PIDFILE"; then
-      echo "[$NAME] läuft bereits (PID $MANAGED_PID)"
+      echo "[$NAME] already running (PID $MANAGED_PID)"
       return 0
     else
       pid_state=$?
       if (( pid_state == 2 )); then
-        warn "[$NAME] PID-Datei kann nicht verifiziert werden: $PIDFILE. Abbruch."
+        warn "[$NAME] PID file cannot be verified: $PIDFILE. Aborting."
         return 2
       fi
       rm -f "$PIDFILE"
@@ -259,7 +273,7 @@ start_one() {
   require_free_port "$NAME" "$PORT" || return $?
 
   if scope="$(service_scope loaded "$NAME")"; then
-    echo "[$NAME] start: systemd-$scope-Dienst"
+    echo "[$NAME] start: systemd $scope service"
     service_action "$scope" start "$NAME"
     return
   fi
@@ -272,29 +286,29 @@ start_one() {
     CMD+=(--gameid "$GAMEID")
   fi
 
-  current_boot="$(boot_id)" || die "Boot-ID kann nicht gelesen werden"
+  current_boot="$(boot_id)" || die "Boot ID cannot be read"
   echo "[$NAME] start: world=$WORLDREL port=$PORT gameid=${GAMEID:-<default>} log=$LOGFILE"
   nohup "${CMD[@]}" >>"$LOGFILE" 2>&1 &
   PID=$!
   if ! start_time="$(pid_start_time "$PID")"; then
     exit_status=0
     wait "$PID" || exit_status=$?
-    warn "[$NAME] Start fehlgeschlagen (Exitcode $exit_status). Details: $LOGFILE"
+    warn "[$NAME] Start failed (exit code $exit_status). Details: $LOGFILE"
     return 1
   fi
   printf '%s %s %s\n' "$PID" "$start_time" "$current_boot" > "$PIDFILE"
 
-  # Sofortige Startfehler erkennen, bevor Erfolg gemeldet wird.
+  # Catch immediate startup failures before reporting success.
   sleep 1
   if ! is_pid_running "$PID"; then
     exit_status=0
     wait "$PID" || exit_status=$?
     rm -f "$PIDFILE"
-    warn "[$NAME] Start fehlgeschlagen (Exitcode $exit_status). Details: $LOGFILE"
+    warn "[$NAME] Start failed (exit code $exit_status). Details: $LOGFILE"
     return 1
   fi
 
-  echo "[$NAME] Prozess läuft (PID $PID)"
+  echo "[$NAME] process is running (PID $PID)"
 }
 
 run_one() {
@@ -311,11 +325,11 @@ run_one() {
 
   echo "[$NAME] run: world=$WORLDREL port=$PORT gameid=${GAMEID:-<default>}"
 
-  # systemd überwacht den Serverprozess direkt; hier gibt es keine PID-Datei.
+  # systemd tracks the server process directly, so no PID file is used here.
   exec "${CMD[@]}"
 }
 
-# Rückgabe: 0 = beendet, 1 = läuft noch, 2 = PID-Kennung passt nicht mehr.
+# Return: 0 = exited, 1 = still running, 2 = process identity no longer matches.
 wait_for_managed_exit() {
   local pidfile="$1" attempts="$2" delay="$3" state i
   for ((i = 0; i < attempts; i++)); do
@@ -340,13 +354,13 @@ stop_one() {
   PIDFILE="$(pidfile_of "$NAME")"
 
   if scope="$(service_scope active "$NAME")"; then
-    echo "[$NAME] stop: systemd-$scope-Dienst"
+    echo "[$NAME] stop: systemd $scope service"
     service_action "$scope" stop "$NAME" || return $?
   fi
 
   if [[ ! -f "$PIDFILE" ]]; then
     if [[ -z "${scope:-}" ]]; then
-      echo "[$NAME] kein PID-File (nicht gestartet?)"
+      echo "[$NAME] no PID file (not started directly?)"
     fi
     return 0
   fi
@@ -356,10 +370,10 @@ stop_one() {
   else
     pid_state=$?
     if (( pid_state == 2 )); then
-      warn "[$NAME] PID-Datei kann nicht verifiziert werden: $PIDFILE. Prozess wird nicht beendet."
+      warn "[$NAME] PID file cannot be verified: $PIDFILE. Process will not be stopped."
       return 2
     fi
-    echo "[$NAME] Prozess läuft nicht. Entferne PID-File."
+    echo "[$NAME] process is not running; removing stale PID file"
     rm -f "$PIDFILE"
     return 0
   fi
@@ -374,12 +388,12 @@ stop_one() {
   else
     pid_state=$?
     if (( pid_state == 2 )); then
-      warn "[$NAME] PID-Kennung hat sich geändert. Kein weiteres Signal gesendet."
+      warn "[$NAME] Process identity changed. No further signal will be sent."
       return 2
     fi
   fi
 
-  # Vor SIGKILL erneut prüfen: die PID könnte inzwischen neu vergeben sein.
+  # Verify again before SIGKILL because the PID may have been reused.
   if pidfile_state "$PIDFILE"; then
     :
   else
@@ -389,11 +403,11 @@ stop_one() {
       echo "[$NAME] stopped"
       return 0
     fi
-    warn "[$NAME] PID-Kennung hat sich geändert. SIGKILL wird nicht gesendet."
+    warn "[$NAME] Process identity changed. SIGKILL will not be sent."
     return 2
   fi
   echo "[$NAME] stop: SIGKILL PID $PID"
-  kill -9 "$PID" 2>/dev/null || { warn "[$NAME] SIGKILL fehlgeschlagen"; return 1; }
+  kill -9 "$PID" 2>/dev/null || { warn "[$NAME] SIGKILL failed"; return 1; }
   if wait_for_managed_exit "$PIDFILE" 20 0.1; then
     rm -f "$PIDFILE"
     echo "[$NAME] stopped (hard)"
@@ -401,11 +415,11 @@ stop_one() {
   else
     pid_state=$?
     if (( pid_state == 2 )); then
-      warn "[$NAME] PID-Kennung hat sich geändert. PID-Datei bleibt erhalten."
+      warn "[$NAME] Process identity changed. PID file was retained."
       return 2
     fi
   fi
-  warn "[$NAME] Prozess läuft trotz SIGKILL noch (PID $PID)"
+  warn "[$NAME] Process is still running after SIGKILL (PID $PID)"
   return 1
 }
 
@@ -415,7 +429,7 @@ status_one() {
 
   PIDFILE="$(pidfile_of "$NAME")"
 
-  # Zuerst eine manuell gestartete Instanz prüfen.
+  # Check a directly started instance before querying systemd.
   if [[ -f "$PIDFILE" ]]; then
     if pidfile_state "$PIDFILE"; then
       PID="$MANAGED_PID"
@@ -442,23 +456,24 @@ check_conf() {
   for_each_instance _check_line true
 }
 
+# Configuration callbacks
 _check_line() {
   local NAME="$1" WORLDREL="$2" PORT="$3" LOGREL="$4" GAMEID="$5"
 
-  [[ -n "$NAME" ]] || { warn "Leerer NAME"; return 1; }
-  valid_instance_name "$NAME" || { warn "Ungültiger NAME: $NAME"; return 1; }
-  [[ -n "$WORLDREL" ]] || { warn "[$NAME] WORLDREL leer"; return 1; }
-  [[ -n "$PORT" ]] || { warn "[$NAME] PORT leer"; return 1; }
-  [[ "$PORT" =~ ^[0-9]+$ ]] || { warn "[$NAME] PORT ist keine Zahl: $PORT"; return 1; }
+  [[ -n "$NAME" ]] || { warn "Empty NAME"; return 1; }
+  valid_instance_name "$NAME" || { warn "Invalid NAME: $NAME"; return 1; }
+  [[ -n "$WORLDREL" ]] || { warn "[$NAME] WORLDREL is empty"; return 1; }
+  [[ -n "$PORT" ]] || { warn "[$NAME] PORT is empty"; return 1; }
+  [[ "$PORT" =~ ^[0-9]+$ ]] || { warn "[$NAME] PORT is not a number: $PORT"; return 1; }
   if (( ${#PORT} > 5 )) || (( 10#$PORT < 1 || 10#$PORT > 65535 )); then
-    warn "[$NAME] PORT außerhalb 1..65535: $PORT"
+    warn "[$NAME] PORT is outside 1..65535: $PORT"
     return 1
   fi
-  [[ -n "$LOGREL" ]] || { warn "[$NAME] LOGREL leer"; return 1; }
+  [[ -n "$LOGREL" ]] || { warn "[$NAME] LOGREL is empty"; return 1; }
 
-  # Eine fehlende Welt macht die Konfiguration ungültig.
+  # A missing world makes the configuration invalid.
   if [[ ! -d "$LUANTI_DIR/$WORLDREL" ]]; then
-    warn "[$NAME] World-Pfad existiert nicht: $LUANTI_DIR/$WORLDREL"
+    warn "[$NAME] World path does not exist: $LUANTI_DIR/$WORLDREL"
     return 1
   fi
 
@@ -469,13 +484,13 @@ _restart_one() {
   local NAME="$1" WORLDREL="$2" PORT="$3" LOGREL="$4" GAMEID="$5"
   local scope
   if scope="$(service_scope active "$NAME")"; then
-    echo "[$NAME] restart: systemd-$scope-Dienst"
+    echo "[$NAME] restart: systemd $scope service"
     service_action "$scope" restart "$NAME"
     return
   fi
   if scope="$(service_scope loaded "$NAME")"; then
     if [[ -f "$(pidfile_of "$NAME")" ]]; then stop_one "$NAME"; fi
-    echo "[$NAME] restart: systemd-$scope-Dienst"
+    echo "[$NAME] restart: systemd $scope service"
     start_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
     return
   fi
@@ -495,12 +510,12 @@ _ports_one() {
   printf "[%s] port=%s %s\n" "$NAME" "$PORT" "$listen"
 }
 
-# Befehle
+# Command dispatch
 cmd="${1:-help}"
 arg="${2:-}"
 
 case "$cmd" in
-  help|--help|-h) ;;
+  help|--help|-h|version|--version|-V) ;;
   start|restart|run|check) need_conf; need_luanti ;;
   *) need_conf ;;
 esac
@@ -510,28 +525,32 @@ case "$cmd" in
     usage
     ;;
 
+  version|--version|-V)
+    echo "luantictl $VERSION"
+    ;;
+
   check)
     if check_conf; then
-      echo "OK: Config sieht brauchbar aus."
+      echo "OK: Configuration is valid."
     else
-      echo "Config hat Probleme (siehe WARN/ERROR)."
+      echo "Configuration has errors (see WARN/ERROR messages)."
       exit 2
     fi
     ;;
 
   start)
-    [[ -n "$arg" ]] || die "start braucht all|<name>"
+    [[ -n "$arg" ]] || die "start requires all|<name>"
     if [[ "$arg" == "all" ]]; then
       for_each_instance start_one
     else
-      line="$(get_instance_line "$arg")" || die "Unbekannte Instanz: $arg"
+      line="$(get_instance_line "$arg")" || die "Unknown instance: $arg"
       IFS='|' read -r NAME WORLDREL PORT LOGREL GAMEID <<<"$line"
       start_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
     fi
     ;;
 
   stop)
-    [[ -n "$arg" ]] || die "stop braucht all|<name>"
+    [[ -n "$arg" ]] || die "stop requires all|<name>"
     if [[ "$arg" == "all" ]]; then
       for_each_instance stop_one
     else
@@ -540,40 +559,40 @@ case "$cmd" in
     ;;
 
   restart)
-    [[ -n "$arg" ]] || die "restart braucht all|<name>"
+    [[ -n "$arg" ]] || die "restart requires all|<name>"
     if [[ "$arg" == "all" ]]; then
       for_each_instance _restart_one
     else
-      line="$(get_instance_line "$arg")" || die "Unbekannte Instanz: $arg"
+      line="$(get_instance_line "$arg")" || die "Unknown instance: $arg"
       IFS='|' read -r NAME WORLDREL PORT LOGREL GAMEID <<<"$line"
       _restart_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
     fi
     ;;
 
-    run)
-      [[ -n "$arg" ]] || die "run braucht <name>"
-      line="$(get_instance_line "$arg")" || die "Unbekannte Instanz: $arg"
-      IFS='|' read -r NAME WORLDREL PORT LOGREL GAMEID <<<"$line"
-      run_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
+  run)
+    [[ -n "$arg" ]] || die "run requires <name>"
+    line="$(get_instance_line "$arg")" || die "Unknown instance: $arg"
+    IFS='|' read -r NAME WORLDREL PORT LOGREL GAMEID <<<"$line"
+    run_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
     ;;
 
   status)
     if [[ -z "$arg" || "$arg" == "all" ]]; then
       for_each_instance status_one
     else
-      line="$(get_instance_line "$arg")" || die "Unbekannte Instanz: $arg"
+      line="$(get_instance_line "$arg")" || die "Unknown instance: $arg"
       IFS='|' read -r NAME WORLDREL PORT LOGREL GAMEID <<<"$line"
       status_one "$NAME" "$WORLDREL" "$PORT" "$LOGREL" "$GAMEID"
     fi
     ;;
 
   tail)
-    [[ -n "$arg" ]] || die "tail braucht <name> [lines]"
+    [[ -n "$arg" ]] || die "tail requires <name> [lines]"
     lines="${3:-100}"
-    line="$(get_instance_line "$arg")" || die "Unbekannte Instanz: $arg"
+    line="$(get_instance_line "$arg")" || die "Unknown instance: $arg"
     IFS='|' read -r NAME _WORLDREL _PORT LOGREL _GAMEID <<<"$line"
     LOGFILE="$(logfile_of_rel "$LOGREL")"
-    [[ -f "$LOGFILE" ]] || die "Logfile nicht gefunden: $LOGFILE"
+    [[ -f "$LOGFILE" ]] || die "Log file not found: $LOGFILE"
     tail -n "$lines" -f "$LOGFILE"
     ;;
 
@@ -582,6 +601,6 @@ case "$cmd" in
     ;;
 
   *)
-    die "Unbekannter Befehl: $cmd (nutze: luantictl help)"
+    die "Unknown command: $cmd (use: luantictl help)"
     ;;
 esac
